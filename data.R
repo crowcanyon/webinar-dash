@@ -5,10 +5,7 @@ library(purrr)
 
 zips <-
   tigris::zctas() %>%
-  dplyr::select(ZCTA5CE10) %>%
-  dplyr::left_join(tigris::counties() %>%
-                     dplyr::select(NAMELSAD)) %>%
-  dplyr::left_join()
+  dplyr::select(ZCTA5CE10)
 
 webinar_data <- 
   httr::GET("https://altrurig05bo3.blackbaudhosting.com/4454PP_f5a15944-0384-4163-8287-0c23fbc3ba1a/ODataQuery.ashx",
@@ -17,8 +14,6 @@ webinar_data <-
             httr::authenticate(user = Sys.getenv("altru_user"),
                                password = Sys.getenv("altru_pw"))) %>%
   httr::content(as = "text")
-
-
 
 all_data <-
   webinar_data %>%
@@ -54,65 +49,46 @@ all_data <-
                 country = 
                   country %>%
                   stringr::str_trim() %>%
-                  dplyr::na_if("")
-  )
+                  dplyr::na_if(""))
 
 international <- 
   all_data %>%
   dplyr::filter(country != "United States")
 
-united_states <- 
+united_states <-
   all_data %>%
   dplyr::filter(country == "United States",
                 !(is.na(city) & is.na(zip) & !is.na(state)),
                 !(is.na(city) & is.na(state) & is.na(zip))) %>%
-  dplyr::mutate(street = ifelse(!is.na(zip), NA, street),
-                city = ifelse(!is.na(zip), NA, city),
-                state = ifelse(!is.na(zip), NA, state),
-                zip = stringr::str_sub(zip, end = 5)) %>%
-  dplyr::group_by(city, state, zip) %>%
+  dplyr::mutate(zip = stringr::str_sub(zip, end = 5)) %>%
+  dplyr::select(-street:-state, -country) %>%
+  dplyr::group_by(zip) %>%
   tidyr::nest(events = c(event, event_date, participants)) %>%
-  dplyr::arrange(zip)
-
-
-
-unlist(places$location, recursive = FALSE) %>% sf::st_sfc(places$location)
-
-do.call(c, places$location)
-
-
-test <-
-  households %>%
-  dplyr::rowwise() %>%
-  magrittr::extract(1:10,) %>%
-  dplyr::mutate(location = httr::GET("https://nominatim.openstreetmap.org/search",
-                                     
-                                     query = list(#street = street,
-                                       city = city,
-                                       state = state,
-                                       postalcode = zip,
-                                       limit = 1,
-                                       format = "geojson")) %>%
-                  httr::content(as = "text") %>%
-                  sf::read_sf() %>%
-                  list())
-
-httr::GET("https://nominatim.openstreetmap.org/search",
-          query = list(
-            city = NA,
-            state = NA,
-            postalcode = 94306,
-            limit = 1,
-            format = "geojson") %>%
-            purrr::map(na.omit)) %>%
-  httr::content(as = "text") %>%
-  sf::read_sf()
-
-%>%
-  dplyr::mutate(geom =   paste(street, city, state, zip, sep = ", ") %>%
-                  stringr::str_remove("\\#") %>%
-                  ggmap::geocode() %$%
-                  points_to_datum(lon, lat) %>%
-                  sf::st_as_sfc(crs = 4326)
-  ) %>%
-  sf::st_as_sf()
+  dplyr::ungroup() %>%
+  dplyr::arrange(zip) %>%
+  dplyr::left_join(readr::read_csv("https://www2.census.gov/geo/docs/maps-data/data/rel/zcta_county_rel_10.txt",
+                                   col_types = readr::cols(.default = readr::col_character())) %>%
+                     dplyr::select(ZCTA5, STATE, COUNTY),
+                   by = c("zip" = "ZCTA5")) %>%
+  dplyr::left_join(tigris::fips_codes,
+                   by = c("STATE" = "state_code",
+                          "COUNTY" = "county_code")) %>%
+  dplyr::mutate(id = paste0(STATE,COUNTY)) %>%
+  dplyr::select(id,
+                County = county,
+                State = state,
+                events) %>%
+  tidyr::unnest(events) %>%
+  dplyr::group_by(id, County, State, event, event_date) %>%
+  dplyr::summarise(Households = dplyr::n(),
+                   Participants = as.integer(sum(participants))) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(id, 
+                County, 
+                State, 
+                Event = event,
+                Date = event_date,
+                Households,
+                Participants) %>%
+  dplyr::arrange(County, State, Date) %T>%
+  readr::write_csv("webinars.csv")
