@@ -50,7 +50,7 @@ plotly::ggplotly(
     scale_x_date(date_breaks = "1 month",
                  date_labels = "%b") +
     xlab("Date") +
-    ylab("Views") +
+    ylab("Participants") +
     theme_minimal() +
     theme(legend.justification = c(1,1),
           legend.position = c(1,1),
@@ -62,7 +62,7 @@ plotly::ggplotly(
     ),
   tooltip = "text"
 ) %>%
-  htmlwidgets::saveWidget("viewers.html")
+  htmlwidgets::saveWidget("participants.html")
 
 webinar_donations <- 
   readxl::read_excel("Webinar Donations - December 2020.xlsx") %>%
