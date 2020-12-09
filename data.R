@@ -1,7 +1,9 @@
 library(magrittr)
-library(httr)
-library(furrr)
-library(purrr)
+library(sf)
+library(tigris)
+library(tidycensus)
+library(ggmap)
+library(ggplot2)
 
 zips <-
   tigris::zctas() %>%
@@ -14,6 +16,97 @@ webinar_data <-
             httr::authenticate(user = Sys.getenv("altru_user"),
                                password = Sys.getenv("altru_pw"))) %>%
   httr::content(as = "text")
+
+
+
+# webinar_participants <-
+#   webinar_data %>%
+#   jsonlite::fromJSON() %$%
+#   value %>%
+#   tibble::as_tibble() %>%
+#   dplyr::select(street = AddressPrimaryAddressline1,
+#                 city = AddressPrimaryCity, 
+#                 state = AddressPrimaryState, 
+#                 zip = AddressPrimaryZIP,
+#                 country = AddressPrimaryCountry) %>%
+#   dplyr::distinct() %>%
+#   dplyr::mutate(geom = paste(street, city, state, zip, sep = ", ") %>%
+#                   stringr::str_remove("\\#") %>%
+#                   ggmap::geocode() %$%
+#                   points_to_datum(lon, lat) %>%
+#                   sf::st_as_sfc(crs = 4326)
+#                 ) %>%
+#   sf::st_as_sf()
+# 
+# webinar_participants %<>%
+#   dplyr::select(geometry) %T>%
+#   sf::write_sf("webinar.geojson",
+#                delete_dsn = TRUE)
+
+webinar_cities <- 
+  webinar_data %>%
+  jsonlite::fromJSON() %$%
+  value %>%
+  tibble::as_tibble() %>%
+  dplyr::select(street = AddressPrimaryAddressline1,
+                city = AddressPrimaryCity, 
+                state = AddressPrimaryState, 
+                zip = AddressPrimaryZIP,
+                country = AddressPrimaryCountry) %>%
+  dplyr::filter(country == "United States",
+                !(is.na(city) & is.na(zip) & !is.na(state)),
+                !(is.na(city) & is.na(state) & is.na(zip))) %>%
+  dplyr::mutate(zip = stringr::str_sub(zip, end = 5)) %>%
+  dplyr::distinct() %>%
+  dplyr::left_join(readr::read_csv("http://federalgovernmentzipcodes.us/free-zipcode-database-Primary.csv") %>%
+                     dplyr::select(zip = Zipcode,
+                                   City,
+                                   State)) %>%
+  dplyr::select(City, 
+                State) %>%
+  dplyr::mutate(City = stringr::str_to_title(City)) %>%
+  dplyr::group_by(City, 
+                  State) %>%
+  dplyr::count(sort = TRUE) %>%
+  dplyr::ungroup() %T>%
+  writexl::write_xlsx("webinar_cities.xlsx")
+
+webinar_counties <- 
+  webinar_data %>%
+  jsonlite::fromJSON() %$%
+  value %>%
+  tibble::as_tibble() %>%
+  dplyr::select(street = AddressPrimaryAddressline1,
+                city = AddressPrimaryCity, 
+                state = AddressPrimaryState, 
+                zip = AddressPrimaryZIP,
+                country = AddressPrimaryCountry) %>%
+  dplyr::filter(country == "United States",
+                !(is.na(city) & is.na(zip) & !is.na(state)),
+                !(is.na(city) & is.na(state) & is.na(zip))) %>%
+  dplyr::mutate(zip = stringr::str_sub(zip, end = 5)) %>%
+  dplyr::distinct() %>%
+  dplyr::left_join(readr::read_csv("http://federalgovernmentzipcodes.us/free-zipcode-database-Primary.csv") %>%
+                     dplyr::select(zip = Zipcode,
+                                   Lat,
+                                   Long)) %>%
+  dplyr::filter(!is.na(Lat),
+                !is.na(Long)) %>%
+  sf::st_as_sf(coords = c("Long", "Lat"), crs = 4326) %>%
+sf::st_intersection(tigris::counties(cb = TRUE, resolution = "20m") %>%
+                      sf::st_transform(4326)) %>%
+  dplyr::select(STATEFP, COUNTYFP) %>%
+  sf::st_drop_geometry() %>%
+  dplyr::left_join(tigris::fips_codes,
+                   by = c("STATEFP" = "state_code",
+                          "COUNTYFP" = "county_code")) %>%
+  dplyr::select(County = county, State = state_name) %>%
+  dplyr::group_by(County, State) %>%
+  dplyr::count(sort = TRUE) %>%
+  dplyr::ungroup()  %T>%
+  writexl::write_xlsx("webinar_counties.xlsx")
+
+  
 
 all_data <-
   webinar_data %>%
