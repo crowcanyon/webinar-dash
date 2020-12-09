@@ -207,7 +207,7 @@ g <-
           size=0.1) +
   # coord_sf(crs = 5070, 
   #          datum = NA) +
-  scale_fill_viridis_c("Number of Households",
+  scale_fill_viridis_c("Households",
                        limits = c(1, 200),
                        breaks = c(1,50,100,150, 200),
                        na.value = "gray75") +
@@ -229,10 +229,11 @@ ggsave("webinar_map.pdf",
        height = 6,
        width = 6)
 
+
 plotly::ggplotly(
   g,
   tooltip = "text"
 ) %>%
-  plotly::hide_guides() %>%
+  # plotly::hide_guides() %>%
   htmlwidgets::saveWidget("webinar_map.html",
                           title = "2020 Webinar Households")
